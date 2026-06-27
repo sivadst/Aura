@@ -45,6 +45,7 @@ model User {
   emailAccounts EmailAccount[]
   organizationId String?
   organization   Organization? @relation(fields: [organizationId], references: [id])
+  calendarAccount CalendarAccount?
 }
 
 model VerificationToken {
@@ -65,6 +66,11 @@ model Organization {
   settings  Settings?
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+  
+  analyticsSnapshots AnalyticsSnapshot[]
+  aiPerformanceLogs  AIPerformanceLog[]
+  calendarAccounts   CalendarAccount[]
+  calendarEvents     CalendarEvent[]
 }
 
 model EmailAccount {
@@ -101,8 +107,15 @@ model Email {
   status      String   @default("RECEIVED")
   sentAt      DateTime?
 
+  aiModelUsed       String?  @default("gpt-4o-mini")
+  draftEditDistance Float?
+  wasApprovedAsIs   Boolean  @default(false)
+  dealValue         Float?
+  currency          String   @default("USD")
+
   account      EmailAccount @relation(fields: [accountId], references: [id], onDelete: Cascade)
   organization Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  calendarEvents CalendarEvent[]
 }
 
 model KnowledgeItem {
@@ -131,6 +144,15 @@ model QuickAnalysis {
   pipelineStage String @default("New Lead")
   createdAt   DateTime @default(now())
   org         Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  
+  aiModelUsed       String?  @default("gpt-4o-mini")
+  draftEditDistance Float?
+  wasApprovedAsIs   Boolean  @default(false)
+  sentAt            DateTime?
+  source            String?  @default("manual") // "gmail_sync" | "manual" | "api"
+  convertedToLead   Boolean  @default(false)
+  
+  calendarEvents CalendarEvent[]
 }
 
 model Settings {
@@ -144,5 +166,129 @@ model Settings {
   aiTone           String?
   autoFollowUp     Boolean @default(false)
   followUpDelayDays Int @default(3)
+  
+  fineTunedModelId      String?
+  fineTunedModelWeight  Float    @default(0.5)
+  fineTunedModelEnabled Boolean  @default(false)
+  
   org              Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+}
+
+model AnalyticsSnapshot {
+  id              String   @id @default(cuid())
+  organizationId  String
+  organization    Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  
+  // Pipeline metrics
+  totalLeads      Int
+  leadsByStage    Json     // { "New Lead": 5, "Contacted": 3, ... }
+  avgLeadScore    Float
+  conversionRate  Float    // percentage
+  
+  // AI Performance
+  totalDrafts     Int
+  approvedAsIs    Int
+  approvalRate    Float
+  avgEditDistance Float    // Levenshtein distance normalized
+  
+  // Revenue
+  pipelineValue   Float
+  weightedForecast Float
+  
+  // Time series
+  periodStart     DateTime
+  periodEnd       DateTime
+  granularity     String   // "daily", "weekly", "monthly"
+  
+  createdAt       DateTime @default(now())
+  
+  @@index([organizationId, periodStart])
+  @@index([organizationId, granularity])
+}
+
+model AIPerformanceLog {
+  id              String   @id @default(cuid())
+  organizationId  String
+  organization    Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  
+  // Draft tracking
+  draftId         String   // references QuickAnalysis or Email
+  draftType       String   // "quick_analysis" | "email_reply"
+  
+  originalDraft   String   @db.Text
+  finalDraft      String?  @db.Text
+  editDistance    Float?   // normalized Levenshtein
+  
+  // Outcome
+  wasApproved     Boolean  // sent without changes
+  wasEdited       Boolean  // user made changes
+  wasRejected     Boolean  // user discarded
+  
+  // Timing
+  draftGeneratedAt DateTime
+  firstActionAt    DateTime?  // when user interacted
+  sentAt           DateTime?
+  
+  // AI config
+  modelUsed        String   @default("gpt-4o-mini")
+  temperature      Float    @default(0.7)
+  
+  createdAt        DateTime @default(now())
+  
+  @@index([organizationId, draftGeneratedAt])
+  @@index([organizationId, modelUsed])
+}
+
+model CalendarAccount {
+  id            String   @id @default(cuid())
+  userId        String   @unique
+  user          User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  
+  provider      String   // "google" | "outlook"
+  email         String
+  accessToken   String   @db.Text
+  refreshToken  String   @db.Text
+  expiryDate    DateTime
+  
+  isDefault     Boolean  @default(false)
+  
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+  
+  @@index([organizationId])
+}
+
+model CalendarEvent {
+  id            String   @id @default(cuid())
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  
+  // Link to Aura entities
+  emailId       String?
+  email         Email?   @relation(fields: [emailId], references: [id])
+  quickAnalysisId String?
+  quickAnalysis QuickAnalysis? @relation(fields: [quickAnalysisId], references: [id])
+  
+  // Calendar details
+  calendarEventId String   // Google/Outlook event ID
+  calendarLink    String?
+  meetLink        String?
+  
+  // Event details
+  title         String
+  description   String?  @db.Text
+  startTime     DateTime
+  endTime       DateTime
+  attendees     String[] // Email addresses
+  location      String?
+  
+  status        String   @default("confirmed") // confirmed | tentative | cancelled
+  
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+  
+  @@index([organizationId, startTime])
+  @@index([emailId])
 }
