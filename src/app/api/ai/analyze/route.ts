@@ -1,9 +1,17 @@
 import { NextResponse } from "next/server";
+import { getServerSession } from "next-auth";
+import { authOptions } from "@/lib/auth";
+import { prisma } from "@/lib/prisma";
 import OpenAI from "openai";
 
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
 export async function POST(req: Request) {
+  const session = await getServerSession(authOptions);
+  if (!session?.user?.organizationId) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
   const { content } = await req.json();
 
   // 1. Classify the email
@@ -47,6 +55,21 @@ Draft:`
   });
 
   const draft = draftRes.choices[0].message.content || "";
+
+  // 3. Save to QuickAnalysis
+  await prisma.quickAnalysis.create({
+    data: {
+      orgId: session.user.organizationId,
+      content,
+      category: classification.category,
+      priority: classification.priority,
+      intent: classification.intent,
+      sentiment: classification.sentiment,
+      leadScore: classification.leadScore,
+      summary: classification.summary,
+      draft,
+    },
+  });
 
   return NextResponse.json({
     ...classification,
