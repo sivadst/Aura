@@ -1,4 +1,3 @@
-import { logger } from "../logger";
 
 export function suggestMeetingTimes(
   preferredDays: number = 3,
