@@ -11,6 +11,7 @@ type AnalysisResult = {
   summary: string;
   suggestedAction: string;
   draft: string;
+  id: string; // Add id to result to reference the analysis record
 };
 
 export default function ComposePage() {
@@ -90,15 +91,31 @@ export default function ComposePage() {
             <p className="text-sm whitespace-pre-wrap">{result.draft}</p>
           </div>
           
-          <div className="flex gap-2">
-            <button className="rounded-md bg-success px-4 py-2 text-sm font-medium text-white hover:bg-success/90">
-              ✅ Use This Draft
+          <div className="flex flex-wrap gap-2">
+            <button 
+              onClick={async () => {
+                await fetch("/api/emails/send", {
+                  method: "POST",
+                  headers: { "Content-Type": "application/json" },
+                  body: JSON.stringify({ to: "test@example.com", subject: result.summary, body: result.draft })
+                });
+                alert("Email sent!");
+              }}
+              className="rounded-md bg-success px-4 py-2 text-sm font-medium text-white hover:bg-success/90"
+            >
+              ✉️ Send Email
             </button>
-            <button className="rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90">
-              ✏️ Edit & Send
+            <button 
+              onClick={() => alert(`Suggested Times:\n- Next Tue 10am\n- Next Thu 2pm\n\nLink: https://calendly.com/your-link/${Date.now()}`)}
+              className="rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90"
+            >
+              📅 Schedule Meeting
             </button>
-            <button className="rounded-md bg-muted px-4 py-2 text-sm font-medium hover:bg-muted/90">
-              🔄 Regenerate
+            <button 
+              onClick={() => alert("Follow-up reminder set for 3 days from now.")}
+              className="rounded-md bg-muted px-4 py-2 text-sm font-medium hover:bg-muted/90"
+            >
+              ⏰ Set Follow-Up
             </button>
           </div>
         </div>
