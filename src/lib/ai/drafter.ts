@@ -1,62 +1,166 @@
 import OpenAI from "openai";
 import { prisma } from "../prisma";
 import { logger } from "../logger";
-import { suggestMeetingTimes, generateMeetingLink } from "../calendar/scheduler";
+import { GoogleCalendarService } from "../calendar/google";
+import { normalizedEditDistance } from "../analytics/edit-distance";
 
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
-export async function generateDraft(emailId: string, tone: string = "professional") {
-  const email = await prisma.email.findUnique({
-    where: { id: emailId },
-    include: { account: { include: { user: true } }, organization: { include: { knowledge: true } } },
-  });
+export interface DraftResult {
+  draft: string;
+  metadata: {
+    intent: string;
+    sentiment: string;
+    suggestedActions: string[];
+    confidence: number;
+  };
+  _logId: string;
+}
 
-  if (!email) throw new Error("Email not found");
-  if (!email.organization) throw new Error("Email organization not found");
+export async function generateDraft(
+  emailContent: string,
+  context: {
+    organizationId: string;
+    userId: string;
+    emailId?: string;
+    knowledgeItems?: string[];
+    previousEmails?: string[];
+    tone?: string;
+    modelId?: string;
+  }
+): Promise<DraftResult> {
+  const model = context.modelId || "gpt-4o-mini";
+  const tone = context.tone || "professional";
 
-  const knowledge = email.organization.knowledge.map((k) => k.content).join("\n\n");
-  const user = email.account.user;
+  const knowledge = context.knowledgeItems?.join("\n\n") || "No specific company knowledge available.";
 
-  const prompt = `You are ${user.name || "a sales assistant"}, representing ${email.organization.name}.
-
+  let prompt = `You are a sales assistant.
+Tone: ${tone}
 Company Knowledge:
-${knowledge || "No specific company knowledge available."}
+${knowledge}
 
 Email to reply to:
-From: ${email.fromName || email.fromEmail} <${email.fromEmail}>
-Subject: ${email.subject}
-Body: ${email.body}
+${emailContent}
 
-Instructions:
-- Tone: ${tone}
-- Be concise (3-5 sentences unless complex)
-- Address all questions or points raised
-- If they mention interest/demo/meeting, suggest these times: ${suggestMeetingTimes().join(", ")}. Include this meeting link: ${generateMeetingLink()}
-- Include a clear call-to-action
-- Use company knowledge for facts, pricing, products
-- Never invent pricing or features not in the knowledge base
-- Sign off naturally
-
-Return ONLY the email body text. No subject line. No markdown formatting. No preamble.`;
+Return ONLY the email body text. No subject line. No preamble.`;
 
   try {
     const response = await openai.chat.completions.create({
-      model: "gpt-4o-mini",
-      temperature: 0.3,
+      model: model,
+      temperature: 0.7,
       messages: [{ role: "user", content: prompt }],
     });
 
     const draft = response.choices[0].message.content || "";
 
-    // Save draft to database
-    await prisma.email.update({
-      where: { id: emailId },
-      data: { aiDraft: draft, isProcessed: true, status: "PENDING_DRAFT" },
+    // Save draft to email if provided
+    if (context.emailId) {
+      await prisma.email.update({
+        where: { id: context.emailId },
+        data: { aiDraft: draft, isProcessed: true, status: "PENDING_DRAFT" },
+      });
+    }
+
+    // Log for analytics
+    const log = await prisma.aIPerformanceLog.create({
+      data: {
+        organizationId: context.organizationId,
+        draftId: context.emailId || `draft_${Date.now()}`,
+        draftType: context.emailId ? "email_reply" : "quick_analysis",
+        originalDraft: draft,
+        modelUsed: model,
+        draftGeneratedAt: new Date(),
+      },
     });
 
-    return draft;
+    return {
+      draft,
+      metadata: {
+        intent: "reply",
+        sentiment: "neutral",
+        suggestedActions: [],
+        confidence: 0.9,
+      },
+      _logId: log.id,
+    };
   } catch (error) {
-    logger.error({ error, emailId }, "Draft generation failed");
+    logger.error({ error, emailId: context.emailId }, "Draft generation failed");
     throw error;
   }
+}
+
+export async function recordDraftOutcome(
+  logId: string,
+  outcome: {
+    finalDraft?: string;
+    action: "approved" | "edited" | "rejected";
+    sentAt?: Date;
+  }
+) {
+  const log = await prisma.aIPerformanceLog.findUnique({
+    where: { id: logId },
+  });
+
+  if (!log) return;
+
+  const editDistance = outcome.finalDraft 
+    ? normalizedEditDistance(log.originalDraft, outcome.finalDraft)
+    : null;
+
+  await prisma.aIPerformanceLog.update({
+    where: { id: logId },
+    data: {
+      finalDraft: outcome.finalDraft,
+      wasApproved: outcome.action === "approved",
+      wasEdited: outcome.action === "edited",
+      wasRejected: outcome.action === "rejected",
+      editDistance,
+      firstActionAt: new Date(),
+      sentAt: outcome.sentAt,
+    },
+  });
+}
+
+// Scheduling integration
+interface SchedulingContext {
+  userId: string;
+  intent: string;
+  detectedKeywords: string[];
+}
+
+export async function generateSmartDraft(
+  emailContent: string,
+  context: {
+    organizationId: string;
+    userId: string;
+    emailId?: string;
+    knowledgeItems?: string[];
+    previousEmails?: string[];
+    tone?: string;
+    modelId?: string;
+    scheduling?: SchedulingContext;
+  }
+) {
+  const schedulingKeywords = ["demo", "meeting", "call", "schedule", "time to chat", "connect"];
+  const lowerContent = emailContent.toLowerCase();
+  
+  const hasSchedulingIntent = schedulingKeywords.some(kw => lowerContent.includes(kw));
+
+  let appendedContent = emailContent;
+
+  if (hasSchedulingIntent) {
+    try {
+      const calendarService = new GoogleCalendarService();
+      const slots = await calendarService.getFreeSlots(context.userId, { durationMinutes: 30, daysAhead: 5 });
+      
+      if (slots && slots.length > 0) {
+        const slotsStr = slots.map(s => s.toLocaleString()).join(", ");
+        appendedContent += `\n\n[SYSTEM INSTRUCTION: The user wants to schedule a meeting. Offer these times in the email naturally: ${slotsStr}.]`;
+      }
+    } catch (e) {
+      logger.warn("Could not fetch calendar slots for smart draft", e);
+    }
+  }
+
+  return await generateDraft(appendedContent, context);
 }
