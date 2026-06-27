@@ -26,7 +26,7 @@ export async function GET(req: NextRequest) {
     });
     
     return NextResponse.redirect(new URL("/dashboard?connected=gmail", req.url));
-  } catch (err) {
+  } catch {
     return NextResponse.redirect(new URL("/dashboard?error=gmail_auth_failed", req.url));
   }
 }
