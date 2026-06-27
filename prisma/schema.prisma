@@ -51,6 +51,8 @@ model User {
   comments        Comment[]
   activities      ActivityLog[]
   workflowsCreated Workflow[]
+  auditLogs       AuditLog[]
+  complianceReports ComplianceReport[]
 }
 
 model VerificationToken {
@@ -81,6 +83,17 @@ model Organization {
   activityLogs       ActivityLog[]
   workflows          Workflow[]
   meetingRecordings  MeetingRecording[]
+  revenueForecasts   RevenueForecast[]
+  dealHealthScores   DealHealthScore[]
+  pipelineVelocities PipelineVelocity[]
+  outreachChannels   OutreachChannel[]
+  outreachMessages   OutreachMessage[]
+  contacts           Contact[]
+  outreachSequences  OutreachSequence[]
+  auditLogs          AuditLog[]
+  dataRetentionPolicy DataRetentionPolicy?
+  securityPolicy     SecurityPolicy?
+  complianceReports  ComplianceReport[]
 }
 
 model EmailAccount {
@@ -130,6 +143,8 @@ model Email {
   calendarEvents CalendarEvent[]
   teamInbox      TeamInbox? @relation(fields: [teamInboxId], references: [id])
   comments       Comment[]
+  dealHealthScores DealHealthScore[]
+  outreachMessages OutreachMessage[]
 }
 
 model KnowledgeItem {
@@ -169,6 +184,7 @@ model QuickAnalysis {
   
   calendarEvents CalendarEvent[]
   comments       Comment[]
+  dealHealthScores DealHealthScore[]
 }
 
 model Settings {
@@ -461,4 +477,283 @@ model MeetingRecording {
   
   @@index([organizationId, status])
   @@index([calendarEventId])
+}
+
+// ===== PHASE 8: Revenue Intelligence =====
+
+model RevenueForecast {
+  id              String   @id @default(cuid())
+  organizationId  String
+  organization    Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  periodType      String
+  periodStart     DateTime
+  periodEnd       DateTime
+  predictedRevenue Float
+  confidenceIntervalLow Float
+  confidenceIntervalHigh Float
+  winProbability  Float
+  byStage         Json
+  byRep           Json
+  bySource        Json
+  keyDrivers      String[]
+  riskFactors     String[]
+  recommendations String[]
+  actualRevenue   Float?
+  accuracy        Float?
+  modelVersion    String   @default("v1")
+  featuresUsed    Json
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+  @@index([organizationId, periodStart])
+  @@index([organizationId, periodType])
+}
+
+model DealHealthScore {
+  id              String   @id @default(cuid())
+  organizationId  String
+  organization    Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  emailId         String?
+  email           Email?   @relation(fields: [emailId], references: [id])
+  quickAnalysisId String?
+  quickAnalysis   QuickAnalysis? @relation(fields: [quickAnalysisId], references: [id])
+  overallScore    Int
+  engagementScore Int
+  velocityScore   Int
+  sentimentScore  Int
+  activityScore   Int
+  competitiveScore Int
+  riskLevel       String
+  riskReasons     String[]
+  predictedCloseDate DateTime?
+  predictedValue  Float?
+  winProbability  Float
+  healthNarrative String?  @db.Text
+  recommendedActions String[]
+  calculatedAt    DateTime @default(now())
+  expiresAt       DateTime
+  @@index([organizationId, overallScore])
+  @@index([emailId])
+  @@index([quickAnalysisId])
+}
+
+model PipelineVelocity {
+  id              String   @id @default(cuid())
+  organizationId  String
+  organization    Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  stage           String
+  avgDaysInStage  Float
+  medianDaysInStage Float
+  conversionRate  Float
+  avgDealValue    Float
+  dealsCount      Int
+  calculatedAt    DateTime @default(now())
+  @@index([organizationId, stage])
+}
+
+// ===== PHASE 8: Multi-Channel Outreach =====
+
+model OutreachChannel {
+  id              String   @id @default(cuid())
+  organizationId  String
+  organization    Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  channelType     String
+  name            String
+  credentials     Json
+  isConnected     Boolean  @default(false)
+  isDefault       Boolean  @default(false)
+  rateLimit       Int      @default(100)
+  dailyQuota      Int      @default(50)
+  usedToday       Int      @default(0)
+  resetAt         DateTime @default(now())
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+  messages        OutreachMessage[]
+  @@index([organizationId, channelType])
+}
+
+model Contact {
+  id              String   @id @default(cuid())
+  organizationId  String
+  organization    Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  email           String?
+  phone           String?
+  linkedInUrl     String?
+  twitterHandle   String?
+  whatsappNumber  String?
+  firstName       String
+  lastName        String
+  title           String?
+  company         String?
+  industry        String?
+  companySize     String?
+  location        String?
+  enrichedData    Json?
+  enrichedAt      DateTime?
+  lastContactAt   DateTime?
+  preferredChannel String?
+  engagementScore Int      @default(0)
+  tags            String[]
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+  outreachMessages OutreachMessage[]
+  @@index([organizationId, email])
+  @@unique([organizationId, email])
+}
+
+model OutreachMessage {
+  id              String   @id @default(cuid())
+  organizationId  String
+  organization    Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  contactId       String?
+  contact         Contact? @relation(fields: [contactId], references: [id])
+  emailId         String?
+  email           Email?   @relation(fields: [emailId], references: [id])
+  channelType     String
+  channelId       String
+  channel         OutreachChannel @relation(fields: [channelId], references: [id])
+  content         String   @db.Text
+  aiDrafted       Boolean  @default(false)
+  aiModelUsed     String?
+  status          String   @default("draft")
+  scheduledAt     DateTime?
+  sentAt          DateTime?
+  deliveredAt     DateTime?
+  readAt          DateTime?
+  repliedAt       DateTime?
+  openCount       Int      @default(0)
+  clickCount      Int      @default(0)
+  replyContent    String?  @db.Text
+  sequenceId      String?
+  sequenceOrder   Int?
+  sentiment       String?
+  intent          String?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+  @@index([organizationId, status])
+  @@index([contactId])
+  @@index([channelType, createdAt])
+}
+
+model OutreachSequence {
+  id              String   @id @default(cuid())
+  organizationId  String
+  organization    Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  name            String
+  description     String?
+  steps           OutreachSequenceStep[]
+  totalContacts   Int      @default(0)
+  activeContacts  Int      @default(0)
+  completedContacts Int    @default(0)
+  replyRate       Float    @default(0)
+  meetingBookedRate Float  @default(0)
+  isActive        Boolean  @default(true)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+}
+
+model OutreachSequenceStep {
+  id              String   @id @default(cuid())
+  sequenceId      String
+  sequence        OutreachSequence @relation(fields: [sequenceId], references: [id], onDelete: Cascade)
+  order           Int
+  name            String
+  channelType     String
+  subjectTemplate String?
+  bodyTemplate    String   @db.Text
+  aiPrompt        String?  @db.Text
+  delayDays       Int      @default(1)
+  delayHours      Int      @default(0)
+  sendTimeWindow  Json
+  condition       Json?
+  useAI           Boolean  @default(true)
+  tone            String   @default("professional")
+  createdAt       DateTime @default(now())
+}
+
+// ===== PHASE 8: Enterprise Security & Compliance =====
+
+model AuditLog {
+  id              String   @id @default(cuid())
+  organizationId  String
+  organization    Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  actorId         String?
+  actor           User?    @relation(fields: [actorId], references: [id])
+  actorEmail      String
+  actorRole       String
+  action          String
+  resourceType    String
+  resourceId      String?
+  description     String   @db.Text
+  metadata        Json
+  severity        String   @default("info")
+  gdprCategory    String?
+  retentionDate   DateTime
+  ipAddress       String?
+  userAgent       String?
+  createdAt       DateTime @default(now())
+  @@index([organizationId, createdAt])
+  @@index([actorId, createdAt])
+  @@index([action, createdAt])
+}
+
+model DataRetentionPolicy {
+  id              String   @id @default(cuid())
+  organizationId  String   @unique
+  organization    Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  emailRetentionDays      Int      @default(2555)
+  analyticsRetentionDays  Int      @default(2555)
+  auditLogRetentionDays   Int      @default(2555)
+  deletedDataRetentionDays Int     @default(90)
+  autoDeleteExpired       Boolean  @default(false)
+  autoAnonymize           Boolean  @default(false)
+  notifyBeforeDelete      Boolean  @default(true)
+  notifyDaysBefore        Int      @default(30)
+  dataProcessingAgreement Boolean  @default(false)
+  dpAgreementSignedAt     DateTime?
+  dpAgreementVersion      String?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+  @@index([organizationId])
+}
+
+model SecurityPolicy {
+  id              String   @id @default(cuid())
+  organizationId  String   @unique
+  organization    Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  mfaRequired     Boolean  @default(false)
+  ssoEnabled      Boolean  @default(false)
+  ssoProvider     String?
+  ssoMetadata     String?  @db.Text
+  passwordMinLength    Int      @default(12)
+  passwordRequireSpecial Boolean  @default(true)
+  passwordExpiryDays   Int      @default(90)
+  passwordHistoryCount Int      @default(5)
+  sessionTimeoutMinutes Int     @default(480)
+  concurrentSessionLimit Int    @default(3)
+  ipWhitelist     String[]
+  allowedDomains  String[]
+  encryptionAtRest Boolean  @default(true)
+  encryptionInTransit Boolean @default(true)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+  @@index([organizationId])
+}
+
+model ComplianceReport {
+  id              String   @id @default(cuid())
+  organizationId  String
+  organization    Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  reportType      String
+  status          String   @default("generating")
+  fileUrl         String?
+  fileSize        Int?
+  expiresAt       DateTime
+  recordCount     Int?
+  findings        Json?
+  requestedById   String
+  requestedBy     User     @relation(fields: [requestedById], references: [id])
+  createdAt       DateTime @default(now())
+  completedAt     DateTime?
+  @@index([organizationId, reportType])
+  @@index([status])
 }
