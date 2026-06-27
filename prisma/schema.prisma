@@ -42,6 +42,7 @@ model User {
   image         String?
   accounts      Account[]
   sessions      Session[]
+  emailAccounts EmailAccount[]
   organizationId String?
   organization   Organization? @relation(fields: [organizationId], references: [id])
 }
@@ -58,6 +59,42 @@ model Organization {
   id        String   @id @default(cuid())
   name      String
   users     User[]
+  emails    Email[]
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+}
+
+model EmailAccount {
+  id           String   @id @default(cuid())
+  userId       String
+  provider     String
+  accessToken  String   @db.Text
+  refreshToken String   @db.Text
+  email        String
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  emails       Email[]
+}
+
+model Email {
+  id          String   @id @default(cuid())
+  orgId       String
+  accountId   String
+  messageId   String   @unique
+  threadId    String?
+  subject     String
+  fromEmail   String
+  fromName    String?
+  toEmail     String
+  body        String   @db.Text
+  bodyHtml    String?  @db.Text
+  snippet     String?  @db.Text
+  receivedAt  DateTime
+  category    String?
+  priority    String?
+  intent      String?
+  sentiment   String?
+  isProcessed Boolean  @default(false)
+
+  account      EmailAccount @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  organization Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
 }
