@@ -14,7 +14,7 @@ export async function POST(req: Request) {
   try {
     const draft = await generateDraft(emailId, tone);
     return NextResponse.json({ success: true, draft });
-  } catch (error) {
+  } catch {
     return NextResponse.json({ error: "Failed to generate draft" }, { status: 500 });
   }
 }
