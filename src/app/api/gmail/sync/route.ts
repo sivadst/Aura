@@ -5,7 +5,7 @@ import { fetchRecentEmails } from "@/lib/gmail";
 import { decrypt } from "@/lib/encryption";
 import { prisma } from "@/lib/prisma";
 
-export async function POST(req: NextRequest) {
+export async function POST() {
   const session = await getServerSession(authOptions);
   if (!session?.user?.id || !session?.user?.organizationId) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });

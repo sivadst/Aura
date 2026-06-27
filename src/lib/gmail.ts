@@ -1,7 +1,4 @@
 import { google, gmail_v1 } from "googleapis";
-import { encrypt, decrypt } from "./encryption";
-import { prisma } from "./prisma";
-import { logger } from "./logger";
 
 const oauth2Client = new google.auth.OAuth2(
   process.env.GOOGLE_CLIENT_ID, // using GOOGLE_CLIENT_ID instead of GMAIL_CLIENT_ID based on existing env
