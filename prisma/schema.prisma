@@ -46,6 +46,10 @@ model User {
   organizationId String?
   organization   Organization? @relation(fields: [organizationId], references: [id])
   calendarAccount CalendarAccount?
+  teamInboxes     TeamInbox[] @relation("TeamInboxMembers")
+  presence        UserPresence?
+  comments        Comment[]
+  activities      ActivityLog[]
 }
 
 model VerificationToken {
@@ -71,6 +75,10 @@ model Organization {
   aiPerformanceLogs  AIPerformanceLog[]
   calendarAccounts   CalendarAccount[]
   calendarEvents     CalendarEvent[]
+  teamInboxes        TeamInbox[]
+  comments           Comment[]
+  activityLogs       ActivityLog[]
+  workflows          Workflow[]
 }
 
 model EmailAccount {
@@ -113,10 +121,13 @@ model Email {
   dealValue         Float?
   currency          String   @default("USD")
   calendarEventId   String?
+  teamInboxId       String?
 
   account      EmailAccount @relation(fields: [accountId], references: [id], onDelete: Cascade)
   organization Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
   calendarEvents CalendarEvent[]
+  teamInbox      TeamInbox? @relation(fields: [teamInboxId], references: [id])
+  comments       Comment[]
 }
 
 model KnowledgeItem {
@@ -287,10 +298,164 @@ model CalendarEvent {
   location      String?
   
   status        String   @default("confirmed") // confirmed | tentative | cancelled
+  recording     MeetingRecording?
   
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
   
   @@index([organizationId, startTime])
   @@index([emailId])
+}
+
+model TeamInbox {
+  id              String   @id @default(cuid())
+  organizationId  String
+  organization    Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  name            String
+  description     String?
+  members         User[]   @relation("TeamInboxMembers")
+  emails          Email[]
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+  @@index([organizationId])
+}
+
+model UserPresence {
+  id              String   @id @default(cuid())
+  userId          String   @unique
+  user            User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  status          String   @default("offline") // online, away, busy, offline
+  currentView     String?  // "/pipeline", "/analytics", etc.
+  lastActivity    DateTime @default(now())
+  socketId        String?
+  @@index([userId])
+}
+
+model Comment {
+  id              String   @id @default(cuid())
+  organizationId  String
+  organization    Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  emailId         String?
+  email           Email?   @relation(fields: [emailId], references: [id], onDelete: Cascade)
+  quickAnalysisId String?
+  quickAnalysis   QuickAnalysis? @relation(fields: [quickAnalysisId], references: [id], onDelete: Cascade)
+  authorId        String
+  author          User     @relation(fields: [authorId], references: [id], onDelete: Cascade)
+  content         String   @db.Text
+  parentId        String?
+  parent          Comment? @relation("CommentReplies", fields: [parentId], references: [id])
+  replies         Comment[] @relation("CommentReplies")
+  mentions        String[] // user IDs
+  isResolved      Boolean  @default(false)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+  @@index([organizationId, emailId])
+  @@index([organizationId, quickAnalysisId])
+}
+
+model ActivityLog {
+  id              String   @id @default(cuid())
+  organizationId  String
+  organization    Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  actorId         String
+  actor           User     @relation(fields: [actorId], references: [id], onDelete: Cascade)
+  actionType      String   // "email_moved", "draft_approved", "comment_added", "meeting_scheduled", "stage_changed"
+  targetType      String   // "Email", "QuickAnalysis", "Pipeline"
+  targetId        String
+  metadata        Json     // { fromStage: "New Lead", toStage: "Contacted", ... }
+  createdAt       DateTime @default(now())
+  @@index([organizationId, createdAt])
+  @@index([actorId])
+}
+
+model Workflow {
+  id              String   @id @default(cuid())
+  organizationId  String
+  organization    Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  name            String
+  description     String?
+  triggerType     String   // "email_received", "stage_changed", "lead_score", "time_based", "manual"
+  triggerConfig   Json     // { stage: "New Lead", minScore: 80, etc. }
+  isActive        Boolean  @default(true)
+  nodes           WorkflowNode[]
+  executions      WorkflowExecution[]
+  executionCount  Int      @default(0)
+  lastExecutedAt  DateTime?
+  createdById     String
+  createdBy       User     @relation(fields: [createdById], references: [id])
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+  @@index([organizationId, isActive])
+}
+
+model WorkflowNode {
+  id              String   @id @default(cuid())
+  workflowId      String
+  workflow        Workflow @relation(fields: [workflowId], references: [id], onDelete: Cascade)
+  nodeType        String   // "condition", "action", "delay", "ai_draft", "send_email", "move_stage", "slack_notify", "webhook"
+  config          Json     // node-specific config
+  positionX       Float
+  positionY       Float
+  nextNodeId      String?
+  nextNode        WorkflowNode? @relation("NodeFlow", fields: [nextNodeId], references: [id])
+  previousNodes   WorkflowNode[] @relation("NodeFlow")
+  createdAt       DateTime @default(now())
+}
+
+model WorkflowExecution {
+  id              String   @id @default(cuid())
+  workflowId      String
+  workflow        Workflow @relation(fields: [workflowId], references: [id], onDelete: Cascade)
+  status          String   @default("running") // running, completed, failed, paused
+  context         Json     // { emailId, leadId, variables }
+  currentNodeId   String?
+  startedAt       DateTime @default(now())
+  completedAt     DateTime?
+  errorMessage    String?
+  logs            WorkflowExecutionLog[]
+  @@index([workflowId, status])
+}
+
+model WorkflowExecutionLog {
+  id              String   @id @default(cuid())
+  executionId     String
+  execution       WorkflowExecution @relation(fields: [executionId], references: [id], onDelete: Cascade)
+  nodeId          String
+  nodeType        String
+  input           Json
+  output          Json
+  status          String   // success, error, skipped
+  executedAt      DateTime @default(now())
+}
+
+model MeetingRecording {
+  id              String   @id @default(cuid())
+  organizationId  String
+  organization    Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  calendarEventId String   @unique
+  calendarEvent   CalendarEvent @relation(fields: [calendarEventId], references: [id], onDelete: Cascade)
+  
+  // Recording details
+  recordingUrl    String?
+  transcription   String?  @db.Text
+  summary         String?  @db.Text
+  keyTopics       String[]
+  actionItems     Json[]   // [{ text, assignee, dueDate, completed }]
+  sentiment       Json     // { overall: "positive", breakdown: [...] }
+  talkRatio       Json     // { salesRep: 0.4, prospect: 0.6 }
+  
+  // AI analysis
+  dealInsights    String?  @db.Text
+  riskFlags       String[]
+  nextSteps       String[]
+  
+  // Status
+  status          String   @default("scheduled") // scheduled, recording, processing, completed, failed
+  processedAt     DateTime?
+  
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+  
+  @@index([organizationId, status])
+  @@index([calendarEventId])
 }
