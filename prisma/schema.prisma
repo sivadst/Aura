@@ -60,6 +60,7 @@ model Organization {
   name      String
   users     User[]
   emails    Email[]
+  knowledge KnowledgeItem[]
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 }
@@ -94,7 +95,21 @@ model Email {
   intent      String?
   sentiment   String?
   isProcessed Boolean  @default(false)
+  aiDraft     String?  @db.Text
+  status      String   @default("RECEIVED")
+  sentAt      DateTime?
 
   account      EmailAccount @relation(fields: [accountId], references: [id], onDelete: Cascade)
   organization Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+}
+
+model KnowledgeItem {
+  id        String   @id @default(cuid())
+  orgId     String
+  title     String
+  content   String   @db.Text
+  type      String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  org       Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
 }
