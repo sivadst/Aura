@@ -7,10 +7,11 @@ export async function apiWrapper(
 ) {
   try {
     return await handler();
-  } catch (error: any) {
-    logger.error({ err: error, context }, "API Error");
+  } catch (error: unknown) {
+    const err = error instanceof Error ? error : new Error(String(error));
+    logger.error({ err, context }, "API Error");
     return NextResponse.json(
-      { success: false, error: error.message || "Internal Server Error" },
+      { success: false, error: err.message || "Internal Server Error" },
       { status: 500 }
     );
   }
