@@ -1,6 +1,7 @@
 import OpenAI from "openai";
 import { prisma } from "../prisma";
 import { logger } from "../logger";
+import { suggestMeetingTimes, generateMeetingLink } from "../calendar/scheduler";
 
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
@@ -30,7 +31,7 @@ Instructions:
 - Tone: ${tone}
 - Be concise (3-5 sentences unless complex)
 - Address all questions or points raised
-- If they mention interest/demo/meeting, suggest 3 specific times (next Tue-Thu, 10am or 2pm)
+- If they mention interest/demo/meeting, suggest these times: ${suggestMeetingTimes().join(", ")}. Include this meeting link: ${generateMeetingLink()}
 - Include a clear call-to-action
 - Use company knowledge for facts, pricing, products
 - Never invent pricing or features not in the knowledge base
