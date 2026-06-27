@@ -50,6 +50,7 @@ model User {
   presence        UserPresence?
   comments        Comment[]
   activities      ActivityLog[]
+  workflowsCreated Workflow[]
 }
 
 model VerificationToken {
@@ -79,6 +80,7 @@ model Organization {
   comments           Comment[]
   activityLogs       ActivityLog[]
   workflows          Workflow[]
+  meetingRecordings  MeetingRecording[]
 }
 
 model EmailAccount {
@@ -166,6 +168,7 @@ model QuickAnalysis {
   suggestedMeetingTimes DateTime[] @default([])
   
   calendarEvents CalendarEvent[]
+  comments       Comment[]
 }
 
 model Settings {
