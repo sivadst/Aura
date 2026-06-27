@@ -112,6 +112,7 @@ model Email {
   wasApprovedAsIs   Boolean  @default(false)
   dealValue         Float?
   currency          String   @default("USD")
+  calendarEventId   String?
 
   account      EmailAccount @relation(fields: [accountId], references: [id], onDelete: Cascade)
   organization Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
@@ -151,6 +152,7 @@ model QuickAnalysis {
   sentAt            DateTime?
   source            String?  @default("manual") // "gmail_sync" | "manual" | "api"
   convertedToLead   Boolean  @default(false)
+  suggestedMeetingTimes DateTime[] @default([])
   
   calendarEvents CalendarEvent[]
 }
