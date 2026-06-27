@@ -134,6 +134,7 @@ export async function generateSmartDraft(
     organizationId: string;
     userId: string;
     emailId?: string;
+    quickAnalysisId?: string;
     knowledgeItems?: string[];
     previousEmails?: string[];
     tone?: string;
@@ -141,25 +142,46 @@ export async function generateSmartDraft(
     scheduling?: SchedulingContext;
   }
 ) {
-  const schedulingKeywords = ["demo", "meeting", "call", "schedule", "time to chat", "connect"];
+  const schedulingKeywords = ["demo", "meeting", "call", "schedule", "book", "calendar"];
   const lowerContent = emailContent.toLowerCase();
   
   const hasSchedulingIntent = schedulingKeywords.some(kw => lowerContent.includes(kw));
 
   let appendedContent = emailContent;
+  let suggestedTimes: Date[] = [];
 
   if (hasSchedulingIntent) {
     try {
-      const calendarService = new GoogleCalendarService();
-      const slots = await calendarService.getFreeSlots(context.userId, { durationMinutes: 30, daysAhead: 5 });
-      
-      if (slots && slots.length > 0) {
-        const slotsStr = slots.map(s => s.toLocaleString()).join(", ");
-        appendedContent += `\n\n[SYSTEM INSTRUCTION: The user wants to schedule a meeting. Offer these times in the email naturally: ${slotsStr}.]`;
+      // Check if calendar is connected
+      const calendarAccount = await prisma.calendarAccount.findUnique({
+        where: { userId: context.userId },
+      });
+
+      if (calendarAccount) {
+        const calendarService = new GoogleCalendarService();
+        const slots = await calendarService.getFreeSlots(context.userId, { durationMinutes: 30, daysAhead: 5 });
+        
+        if (slots && slots.length > 0) {
+          suggestedTimes = slots.slice(0, 3);
+          const slotsStr = suggestedTimes.map(s => s.toLocaleString()).join(", ");
+          appendedContent += `\n\n[SYSTEM INSTRUCTION: The user wants to schedule a meeting. Offer these specific times in the email naturally: ${slotsStr}.]`;
+        }
+      } else {
+        // Fall back to Calendly
+        appendedContent += `\n\n[SYSTEM INSTRUCTION: The user wants to schedule a meeting. Provide a Calendly link (e.g. calendly.com/your-org) to let them pick a time.]`;
       }
     } catch (e) {
       logger.warn("Could not fetch calendar slots for smart draft", e);
+      appendedContent += `\n\n[SYSTEM INSTRUCTION: The user wants to schedule a meeting. Provide a Calendly link (e.g. calendly.com/your-org) to let them pick a time.]`;
     }
+  }
+
+  // Store suggestedMeetingTimes on QuickAnalysis if provided
+  if (suggestedTimes.length > 0 && context.quickAnalysisId) {
+    await prisma.quickAnalysis.update({
+      where: { id: context.quickAnalysisId },
+      data: { suggestedMeetingTimes: suggestedTimes },
+    });
   }
 
   return await generateDraft(appendedContent, context);
