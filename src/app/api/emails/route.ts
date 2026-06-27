@@ -12,10 +12,14 @@ export async function GET(req: NextRequest) {
   
   const searchParams = req.nextUrl.searchParams;
   const filter = searchParams.get("filter") || "ALL";
+  const status = searchParams.get("status");
   
   const where: Prisma.EmailWhereInput = { orgId: session.user.organizationId };
   if (filter !== "ALL") {
     where.category = filter;
+  }
+  if (status) {
+    where.status = status;
   }
   
   const emails = await prisma.email.findMany({
